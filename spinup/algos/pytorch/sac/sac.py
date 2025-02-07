@@ -1,3 +1,5 @@
+import os
+from typing import Optional
 from copy import deepcopy
 import itertools
 import numpy as np
@@ -7,7 +9,6 @@ import gym
 import time
 import spinup.algos.pytorch.sac.core as core
 from spinup.utils.logx import EpochLogger
-
 
 class ReplayBuffer:
     """
@@ -39,14 +40,43 @@ class ReplayBuffer:
                      rew=self.rew_buf[idxs],
                      done=self.done_buf[idxs])
         return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in batch.items()}
+    
+    def save(self, path: str):
+        """Saves the replay buffer to a file."""
+        np.savez_compressed(path,
+                            obs=self.obs_buf,
+                            obs2=self.obs2_buf,
+                            act=self.act_buf,
+                            rew=self.rew_buf,
+                            done=self.done_buf,
+                            ptr=self.ptr,
+                            size=self.size,
+                            max_size=self.max_size)
+        print(f"Replay buffer saved to {path}")
 
+    def load(self, path: str):
+        """Loads the replay buffer from a file."""
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"No saved replay buffer found at {path}")
+
+        data = np.load(path)
+        self.obs_buf = data['obs']
+        self.obs2_buf = data['obs2']
+        self.act_buf = data['act']
+        self.rew_buf = data['rew']
+        self.done_buf = data['done']
+        self.ptr = int(data['ptr'])
+        self.size = int(data['size'])
+        self.max_size = int(data['max_size'])
+
+        print(f"Replay buffer loaded from {path}")
 
 
 def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
         steps_per_epoch=4000, epochs=100, replay_size=int(1e6), gamma=0.99, 
         polyak=0.995, lr=1e-3, alpha=0.2, batch_size=100, start_steps=10000, 
         update_after=1000, update_every=50, num_test_episodes=10, max_ep_len=1000, 
-        logger_kwargs=dict(), save_freq=1):
+        logger_kwargs=dict(), save_freq=1, replay_buffer_path: Optional[str] = None, device='cuda'):
     """
     Soft Actor-Critic (SAC)
 
@@ -141,9 +171,11 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         save_freq (int): How often (in terms of gap between epochs) to save
             the current policy and value function.
+            
+        replay_buffer_path (str): If provided, the replay buffer will be loaded from {replay_buffer_path}
 
     """
-
+        
     logger = EpochLogger(**logger_kwargs)
     logger.save_config(locals())
 
@@ -158,8 +190,11 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     act_limit = env.action_space.high[0]
 
     # Create actor-critic module and target networks
+    # SAC concurrently learns a policy pi_\theta and two Q-functions Q_{\phi_1}, Q_{\phi_2}.
     ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs)
     ac_targ = deepcopy(ac)
+
+    print("=====>Device: " + str(next(ac.parameters()).device))  # Should print "cuda:0" if using GPU
 
     # Freeze target networks with respect to optimizers (only update via polyak averaging)
     for p in ac_targ.parameters():
@@ -171,12 +206,23 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Experience buffer
     replay_buffer = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=replay_size)
 
+    if replay_buffer_path is not None:
+        assert isinstance(replay_buffer_path, str), "replay_buffer_name must be a string"
+        
+        replay_buffer.load(replay_buffer_path)
+        
     # Count variables (protip: try to get a feel for how different size networks behave!)
     var_counts = tuple(core.count_vars(module) for module in [ac.pi, ac.q1, ac.q2])
     logger.log('\nNumber of parameters: \t pi: %d, \t q1: %d, \t q2: %d\n'%var_counts)
 
     # Set up function for computing SAC Q-losses
     def compute_loss_q(data):
+        '''
+        The two Q-functions are learned in a similar way to TD3, but with a few key differences.
+        1. Like in TD3, both Q-functions are learned with MSBE minimization, by regressing to a single shared target.
+        2. Like in TD3, the shared target is computed using target Q-networks, and the target Q-networks are obtained by polyak averaging the Q-network parameters over the course of training.
+        3. Like in TD3, the shared target makes use of the clipped double-Q trick.
+        '''
         o, a, r, o2, d = data['obs'], data['act'], data['rew'], data['obs2'], data['done']
 
         q1 = ac.q1(o,a)
@@ -190,10 +236,10 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             # Target Q-values
             q1_pi_targ = ac_targ.q1(o2, a2)
             q2_pi_targ = ac_targ.q2(o2, a2)
-            q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
-            backup = r + gamma * (1 - d) * (q_pi_targ - alpha * logp_a2)
+            q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ) #  like TD3, SAC uses the clipped double-Q trick, and takes the minimum Q-value between the two Q approximators.
+            backup = r + gamma * (1 - d) * (q_pi_targ - alpha * logp_a2) # The Bellman backup is also called the target 
 
-        # MSE loss against Bellman backup
+        # MSE loss against Bellman backup (target)
         loss_q1 = ((q1 - backup)**2).mean()
         loss_q2 = ((q2 - backup)**2).mean()
         loss_q = loss_q1 + loss_q2
@@ -226,6 +272,7 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Set up model saving
     logger.setup_pytorch_saver(ac)
+    
 
     def update(data):
         # First run one gradient descent step for Q1 and Q2
@@ -256,6 +303,7 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.store(LossPi=loss_pi.item(), **pi_info)
 
         # Finally, update target networks by polyak averaging.
+        # \theta_{\operatorname{targ}} \leftarrow \rho \theta_{\operatorname{targ}}+(1-\rho) \theta
         with torch.no_grad():
             for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
                 # NB: We use an in-place operations "mul_", "add_" to update target
@@ -301,7 +349,7 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # Ignore the "done" signal if it comes from hitting the time
         # horizon (that is, when it's an artificial terminal signal
         # that isn't based on the agent's state)
-        d = False if ep_len==max_ep_len else d
+        d = False if ep_len==max_ep_len else d # If the game over signal is due to the time horizon, then ignore it.
 
         # Store experience to replay buffer
         replay_buffer.store(o, a, r, o2, d)
@@ -325,9 +373,12 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         if (t+1) % steps_per_epoch == 0:
             epoch = (t+1) // steps_per_epoch
 
-            # Save model
+            # Save model and replay
             if (epoch % save_freq == 0) or (epoch == epochs):
                 logger.save_state({'env': env}, None)
+                
+                # We save the replay buffer to the logger's output directory as well.
+                replay_buffer.save(logger.output_dir + f"/replay_buffer.npz")
 
             # Test the performance of the deterministic version of the agent.
             test_agent()
@@ -357,6 +408,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--exp_name', type=str, default='sac')
+    parser.add_argument('--replay_buffer_path', type=str, default=None)
     args = parser.parse_args()
 
     from spinup.utils.run_utils import setup_logger_kwargs
@@ -364,7 +416,9 @@ if __name__ == '__main__':
 
     torch.set_num_threads(torch.get_num_threads())
 
+
     sac(lambda : gym.make(args.env), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), 
         gamma=args.gamma, seed=args.seed, epochs=args.epochs,
-        logger_kwargs=logger_kwargs)
+        logger_kwargs=logger_kwargs,
+        replay_buffer_path=args.replay_buffer_path)

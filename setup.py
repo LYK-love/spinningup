@@ -19,6 +19,7 @@ setup(
         'ipython',
         'joblib',
         'matplotlib==3.1.1',
+        'opencv-python==3.4.13.47',
         'mpi4py',
         'numpy',
         'pandas',

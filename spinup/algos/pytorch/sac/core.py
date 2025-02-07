@@ -71,6 +71,7 @@ class MLPQFunction(nn.Module):
 
     def __init__(self, obs_dim, act_dim, hidden_sizes, activation):
         super().__init__()
+        
         self.q = mlp([obs_dim + act_dim] + list(hidden_sizes) + [1], activation)
 
     def forward(self, obs, act):
@@ -82,7 +83,6 @@ class MLPActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, hidden_sizes=(256,256),
                  activation=nn.ReLU):
         super().__init__()
-
         obs_dim = observation_space.shape[0]
         act_dim = action_space.shape[0]
         act_limit = action_space.high[0]
@@ -95,4 +95,4 @@ class MLPActorCritic(nn.Module):
     def act(self, obs, deterministic=False):
         with torch.no_grad():
             a, _ = self.pi(obs, deterministic, False)
-            return a.numpy()
+            return a.cpu().numpy()

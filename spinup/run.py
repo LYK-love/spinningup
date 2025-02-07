@@ -80,9 +80,9 @@ def parse_and_execute_grid_search(cmd, args):
             friendly_err("You didn't specify a first flag.")
         if '--' in arg:
             arg_key = arg.lstrip('-')
-            arg_dict[arg_key] = []
+            arg_dict[arg_key] = [] # Register the flag in the dict.
         else:
-            arg_dict[arg_key].append(process(arg))
+            arg_dict[arg_key].append(process(arg)) # Add a value to the flag. Note that here is an iteration trick. arg_key  is actually defined in previous iterations
 
     # Make second pass through, to catch flags that have no vals.
     # Assume such flags indicate that a boolean parameter should have

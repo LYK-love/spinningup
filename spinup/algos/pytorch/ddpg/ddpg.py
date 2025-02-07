@@ -1,3 +1,6 @@
+import os
+from typing import Optional
+
 from copy import deepcopy
 import numpy as np
 import torch
@@ -38,6 +41,36 @@ class ReplayBuffer:
                      rew=self.rew_buf[idxs],
                      done=self.done_buf[idxs])
         return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in batch.items()}
+    
+    def save(self, path: str):
+        """Saves the replay buffer to a file."""
+        np.savez_compressed(path,
+                            obs=self.obs_buf,
+                            obs2=self.obs2_buf,
+                            act=self.act_buf,
+                            rew=self.rew_buf,
+                            done=self.done_buf,
+                            ptr=self.ptr,
+                            size=self.size,
+                            max_size=self.max_size)
+        print(f"Replay buffer saved to {path}")
+
+    def load(self, path: str):
+        """Loads the replay buffer from a file."""
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"No saved replay buffer found at {path}")
+
+        data = np.load(path)
+        self.obs_buf = data['obs']
+        self.obs2_buf = data['obs2']
+        self.act_buf = data['act']
+        self.rew_buf = data['rew']
+        self.done_buf = data['done']
+        self.ptr = int(data['ptr'])
+        self.size = int(data['size'])
+        self.max_size = int(data['max_size'])
+
+        print(f"Replay buffer loaded from {path}")
 
 
 
@@ -45,7 +78,7 @@ def ddpg(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
          steps_per_epoch=4000, epochs=100, replay_size=int(1e6), gamma=0.99, 
          polyak=0.995, pi_lr=1e-3, q_lr=1e-3, batch_size=100, start_steps=10000, 
          update_after=1000, update_every=50, act_noise=0.1, num_test_episodes=10, 
-         max_ep_len=1000, logger_kwargs=dict(), save_freq=1):
+         max_ep_len=1000, logger_kwargs=dict(), save_freq=1, replay_buffer_path: Optional[str] = None, device='cuda'):
     """
     Deep Deterministic Policy Gradient (DDPG)
 
@@ -127,6 +160,8 @@ def ddpg(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         save_freq (int): How often (in terms of gap between epochs) to save
             the current policy and value function.
+            
+        replay_buffer_path (str): If provided, the replay buffer will be loaded from {replay_buffer_path}
 
     """
 
@@ -154,6 +189,11 @@ def ddpg(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Experience buffer
     replay_buffer = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=replay_size)
 
+    if replay_buffer_path is not None:
+        assert isinstance(replay_buffer_path, str), "replay_buffer_name must be a string"
+        
+        replay_buffer.load(replay_buffer_path)
+        
     # Count variables (protip: try to get a feel for how different size networks behave!)
     var_counts = tuple(core.count_vars(module) for module in [ac.pi, ac.q])
     logger.log('\nNumber of parameters: \t pi: %d, \t q: %d\n'%var_counts)
@@ -289,6 +329,7 @@ def ddpg(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             # Save model
             if (epoch % save_freq == 0) or (epoch == epochs):
                 logger.save_state({'env': env}, None)
+                replay_buffer.save(logger.output_dir + f"/replay_buffer.npz")
 
             # Test the performance of the deterministic version of the agent.
             test_agent()

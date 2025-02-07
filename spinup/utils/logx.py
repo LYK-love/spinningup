@@ -247,7 +247,7 @@ class Logger:
         """
         self.pytorch_saver_elements = what_to_save
 
-    def _pytorch_simple_save(self, itr=None):
+    def _pytorch_simple_save(self, itr=None, name_str = 'model'):
         """
         Saves the PyTorch model (or models).
         """
@@ -256,7 +256,7 @@ class Logger:
                 "First have to setup saving with self.setup_pytorch_saver"
             fpath = 'pyt_save'
             fpath = osp.join(self.output_dir, fpath)
-            fname = 'model' + ('%d'%itr if itr is not None else '') + '.pt'
+            fname = name_str + ('%d'%itr if itr is not None else '') + '.pt'
             fname = osp.join(fpath, fname)
             os.makedirs(fpath, exist_ok=True)
             with warnings.catch_warnings():
