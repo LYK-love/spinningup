@@ -115,8 +115,8 @@ def get_all_datasets(all_logdirs, legend=None, select=None, exclude=None):
             logdirs += [logdir]
         else:
             basedir = osp.dirname(logdir)
-            fulldir = lambda x : osp.join(basedir, x)
-            prefix = logdir.split(os.sep)[-1]
+            fulldir = lambda x : osp.join(basedir, x) # Defines a helper function fulldir(x) to create full paths inside basedir.
+            prefix = logdir.split(os.sep)[-1] # Extracts the last part of logdir (which could be a prefix).
             listdir= os.listdir(basedir)
             logdirs += sorted([fulldir(x) for x in listdir if prefix in x])
 

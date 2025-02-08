@@ -53,10 +53,24 @@ Afterwards, you can run algos in mujoco envs. For instance,
 python -m spinup.run sac --env Walker2d-v2 --exp_name walker 
 ```
 
+
+This project uses Python=3.6, VSCode python debugging [doesn't support](https://marketplace.visualstudio.com/items?itemName=ms-python.debugpy) this version.  You have to install an older version of the main VSCode Python extensions.
+
+I had to install the following VSCode extensions at these versions:
+
+    Python v2022.8.1
+
+    Pylance v2022.6.30
+
+    Python Debugger v2023.1.XXX (pre-release version | debugpy v1.5.1)
+
 Note: 
 * To watch the game-play video, `env.render()` will be called, which levereges pyglet, which needs a screen connected to your machine. For some reason, VNC does not tackle this requirement. You can see https://stackoverflow.com/questions/40195740/how-to-run-openai-gym-render-over-a-server  for solutions, but none of them is quite satisfying yet.
 * Curretnly spiningup doesn't support GPU, and I failed to add this support. The reason is unknow, see my github [issue](https://github.com/openai/spinningup/issues/440#issue-2837644226).
 * I have done some modifications including replay buffer change, etc.
+* You can view availale gym envs in gym [website](https://www.gymlibrary.dev/environments/mujoco/half_cheetah/). But due to spingingup is an old project using an old gym, only old versions of tasks are supported. For instance, you can't use `Hopper-v4`, instead, you should use `Hopper-v2`.
+* I reproduced [benchmarks for spiningup implementations](https://spinningup.openai.com/en/latest/spinningup/bench.html?utm_source=chatgpt.com#halfcheetah-pytorch-versions).
+
 
 
 **Status:** Maintenance (expect bug fixes and minor updates)
