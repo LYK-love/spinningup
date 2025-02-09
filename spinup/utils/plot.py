@@ -152,15 +152,30 @@ def get_all_datasets(all_logdirs, legend=None, select=None, exclude=None):
 
 
 def make_plots(all_logdirs, legend=None, xaxis=None, values=None, count=False,  
-               font_scale=1.5, smooth=1, select=None, exclude=None, estimator='mean'):
+               font_scale=1.5, smooth=1, select=None, exclude=None, estimator='mean', output_dir=None, output_name=None, show=True):
     data = get_all_datasets(all_logdirs, legend, select, exclude)
     values = values if isinstance(values, list) else [values]
     condition = 'Condition2' if count else 'Condition1'
     estimator = getattr(np, estimator)      # choose what to show on main curve: mean? max? min?
+    # Create output directory if needed
+    if output_dir is not None:
+        assert isinstance(output_dir, str), "Please provide a valid directory path."
+        assert output_name is not None and isinstance(output_name, str), "Please provide a valid output name."
+        if not osp.exists(output_dir):
+            os.makedirs(output_dir)
+
     for value in values:
         plt.figure()
         plot_data(data, xaxis=xaxis, value=value, condition=condition, smooth=smooth, estimator=estimator)
-    plt.show()
+
+        # Save plot if output_dir is provided
+        if output_dir is not None:
+            plot_path = osp.join(output_dir, f"{output_name}.png")
+            plt.savefig(plot_path, bbox_inches='tight')
+            print(f"Saved plot: {plot_path}")
+    if show:
+        plt.show()
+        
 
 
 def main():
@@ -175,6 +190,10 @@ def main():
     parser.add_argument('--select', nargs='*')
     parser.add_argument('--exclude', nargs='*')
     parser.add_argument('--est', default='mean')
+    parser.add_argument('--output_dir', type=str, default=None)
+    parser.add_argument('--output_name', type=str, default=None)
+    parser.add_argument('--show', action='store_true')
+    
     args = parser.parse_args()
     """
 
@@ -222,12 +241,18 @@ def main():
 
         exclude (strings): Optional exclusion rule: plotter will only show 
             curves from logdirs that do not contain these substrings.
+        
+        output_dir (str, optional): Directory to save plots. If None, plots are only displayed.
+        
+        output_name (str, optional): Name of the output plot. Must be provided if output_dir is not None.
+        
+        show (bool, optional): Whether to display the plot. Default is True.
 
     """
 
     make_plots(args.logdir, args.legend, args.xaxis, args.value, args.count, 
                smooth=args.smooth, select=args.select, exclude=args.exclude,
-               estimator=args.est)
+               estimator=args.est, output_dir=args.output_dir, output_name=args.output_name, show=args.show)
 
 if __name__ == "__main__":
     main()
